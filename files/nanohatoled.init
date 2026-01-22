@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2009-2010 OpenWrt.org
+
+START=99
+STOP=15
+
+NanoHatOLED="/etc/NanoHatOLED/nanohat-oled"
+PID_FILE="/var/run/nanohat-oled.pid"
+
+start() {
+    if [ -f "$PID_FILE" ]; then
+        local PID=$(cat "$PID_FILE")
+        if ps | grep -w "nanohat-oled" | grep -v grep > /dev/null 2>&1; then
+            echo "NanoHatOLED is already running, PID: $PID"
+            return 0
+        else
+            echo "Invalid PID file, process $PID exited, cleaning PID file"
+            rm -f "$PID_FILE"
+        fi
+    fi
+
+    echo "Starting NanoHatOLED..."
+    $NanoHatOLED > /dev/null 2>&1 &
+}
+
+stop() {
+    echo "Stopping NanoHatOLED..."
+    $NanoHatOLED -stop > /dev/null 2>&1
+    if [ -f "$PID_FILE" ]; then
+        rm -f "$PID_FILE"
+    fi
+}
