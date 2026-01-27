@@ -21,8 +21,8 @@ import (
 
 const (
 	// SSD1306 basic commands
-	ssd1306DisplayOn                        = 0xAf
-	ssd1306DisplayOff                       = 0xAe
+	ssd1306DisplayOn  = 0xAf
+	ssd1306DisplayOff = 0xAe
 	ssd1306ActivateScroll                   = 0x2F
 	ssd1306DeactivateScroll                 = 0x2E
 	ssd1306SetVerticalScrollArea            = 0xA3
@@ -32,12 +32,12 @@ const (
 	ssd1306VerticalAndLeftHorizontalScroll  = 0x2A
 
 	// Font paths (align with Python version)
-	defaultFontPath     = "/etc/NanoHatOLED/DejaVuSansMono.ttf"
+	defaultFontPath    = "/etc/NanoHatOLED/DejaVuSansMono.ttf"
 	defaultBoldFontPath = "/etc/NanoHatOLED/DejaVuSansMono-Bold.ttf"
-	FixedDPI            = 72 // Match PIL default DPI for consistent font size
-
+	FixedDPI           = 72 // Match PIL default DPI for consistent font size
+	
 	// Dynamic threshold base value (adjust with font size)
-	baseAntiAliasThresh = 90   // Base threshold (balance arc preservation + anti-aliasing)
+	baseAntiAliasThresh = 90  // Base threshold (balance arc preservation + anti-aliasing)
 	sizeThresholdSmall  = 12.0 // Small font size threshold
 	sizeThresholdLarge  = 24.0 // Large font size threshold
 )
@@ -46,12 +46,12 @@ const (
 type NanoOled struct {
 	dev *i2c.Device
 
-	w             int           // Screen width
-	h             int           // Screen height
-	buf           []byte        // Pixel buffer
-	rotation      int           // Screen rotation angle
-	rotationState bool          // Rotation applied flag
-	image         *image.NRGBA  // Image buffer
+	w             int    // Screen width
+	h             int    // Screen height
+	buf           []byte // Pixel buffer
+	rotation      int    // Screen rotation angle
+	rotationState bool   // Rotation applied flag
+	image         *image.NRGBA // Image buffer
 	Btn           [3]gpio.PinIO // GPIO buttons
 
 	// Font related fields
@@ -72,7 +72,7 @@ func (nanoOled *NanoOled) init() (err error) {
 		0xd3, 0x00, // Set display offset
 		0x80 | 0,   // Set segment re-map
 		0x8d, 0x14, // Enable charge pump
-		0x20, 0x0, // Set memory addressing mode
+		0x20, 0x0,  // Set memory addressing mode
 		0xA0 | 0x1, // Set COM output scan direction
 		0xC8,       // Set COM pins hardware configuration
 	})
@@ -97,10 +97,10 @@ func (nanoOled *NanoOled) init() (err error) {
 	err = nanoOled.dev.Write([]byte{
 		0x9d, 0xf1, // Set pre-charge period
 		0xdb, 0x40, // Set VCOMH deselect level
-		0xa4, // Disable entire display on
-		0xa6, // Set normal display
-		0x2e, // Deactivate scroll
-		0xaf, // Turn on display
+		0xa4,       // Disable entire display on
+		0xa6,       // Set normal display
+		0x2e,       // Deactivate scroll
+		0xaf,       // Turn on display
 	})
 	return
 }
@@ -229,7 +229,7 @@ func (nanoOled *NanoOled) Image(imagePath string) error {
 
 	// Get dynamic threshold (adapt to arc preservation for different fonts)
 	threshold := nanoOled.getDynamicThreshold()
-
+	
 	for y := 0; y < grayImg.Bounds().Dy(); y++ {
 		for x := 0; x < grayImg.Bounds().Dx(); x++ {
 			r, g, b, _ := grayImg.At(x, y).RGBA()
@@ -263,47 +263,42 @@ func (nanoOled *NanoOled) Send() error {
 		}
 	}
 
-	// Get dynamic threshold (adapt to font rendering)
-	thresh16 := nanoOled.getDynamicThreshold()
-	thresh8 := uint8(thresh16 >> 8)
+	imgW := nanoOled.image.Bounds().Dx()
+	imgH := nanoOled.image.Bounds().Dy()
 
-	img := nanoOled.image
-	imgW := img.Bounds().Dx()
-	imgH := img.Bounds().Dy()
+	endX := 0 + imgW
+	endY := 0 + imgH
 
-	// Assuming NRGBA
-	pixels := img.Pix
-	stride := img.Stride
-
-	pages := nanoOled.h / 8
-
-	for p := 0; p < pages; p++ {
-		for x := 0; x < nanoOled.w; x++ {
-			var v byte
-			for bit := 0; bit < 8; bit++ {
-				y := p*8 + bit
-
-				if x < imgW && y < imgH {
-					// Calculate pixel index
-					idx := y*stride + x*4
-					if idx+2 < len(pixels) {
-						// Fast gray calculation
-						gray := (uint16(pixels[idx]) + uint16(pixels[idx+1]) + uint16(pixels[idx+2])) / 3
-						if uint8(gray) > thresh8 {
-							v |= 1 << uint(bit)
-						}
-					}
-				}
-			}
-
-			// Write to buffer
-			bufIdx := 1 + x + p*nanoOled.w
-			if bufIdx < len(nanoOled.buf) {
-				nanoOled.buf[bufIdx] = v
-			}
-		}
+	if endX >= nanoOled.w {
+		endX = nanoOled.w
+	}
+	if endY >= nanoOled.h {
+		endY = nanoOled.h
 	}
 
+	// Get dynamic threshold (adapt to font rendering)
+	threshold := nanoOled.getDynamicThreshold()
+	
+	var imgI, imgY int
+	for i := 0; i < endX; i++ {
+		imgY = 0
+		for j := 0; j < endY; j++ {
+			r, g, b, _ := nanoOled.image.At(imgI, imgY).RGBA()
+			var v byte
+			// Precise grayscale judgment (preserve high-brightness pixels only)
+			gray := (r + g + b) / 3
+			if gray > uint32(threshold) {
+				v = 0x1
+			} else {
+				v = 0x0
+			}
+			if err := nanoOled.setPixel(i, j, v); err != nil {
+				return err
+			}
+			imgY++
+		}
+		imgI++
+	}
 	return nanoOled.draw()
 }
 
@@ -340,10 +335,10 @@ func (nanoOled *NanoOled) setPixel(x, y int, v byte) error {
 // draw - Send pixel buffer to OLED via I2C
 func (nanoOled *NanoOled) draw() error {
 	if err := nanoOled.dev.Write([]byte{
-		0xa4,                       // Normal display mode
-		0x40 | 0,                   // Set start line
+		0xa4,     // Normal display mode
+		0x40 | 0, // Set start line
 		0x21, 0, uint8(nanoOled.w), // Set column range
-		0x22, 0, 7, // Set page range
+		0x22, 0, 7,                 // Set page range
 	}); err != nil {
 		return fmt.Errorf("draw init failed: %w", err)
 	}
